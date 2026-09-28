@@ -108,3 +108,18 @@ export class IndeterminateSettlementError extends Error {
     this.name = "IndeterminateSettlementError";
   }
 }
+
+/**
+ * The resource URL or host was disallowed by the server's configured allowlist.
+ * Raised before any request is made or signature generated.
+ */
+export class DisallowedResourceHostError extends Error {
+  constructor(readonly host: string, readonly url: string) {
+    super(
+      `The server configuration disallowed the host "${host}". ` +
+        `Resource URL "${url}" origin is not in the configured resource allowlist. Request refused without signing.`,
+    );
+    this.name = "DisallowedResourceHostError";
+  }
+}
+

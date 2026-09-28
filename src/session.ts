@@ -37,6 +37,20 @@ export interface SessionState {
 
 export type SessionStore = StoreApi<SessionState>;
 
+export type SessionBroadcastMessage =
+  | { type: "start"; session: WalletSession; senderId: string }
+  | { type: "end"; senderId: string };
+
+/**
+ * Pluggable cross-tab / cross-context broadcast seam (#434).
+ * Kept environment agnostic (no window / browser imports): a web app injects
+ * a BroadcastChannel or storage-event adapter; an extension injects browser.runtime messaging.
+ */
+export interface SessionBroadcastAdapter {
+  postMessage(message: SessionBroadcastMessage): void;
+  onMessage(listener: (message: SessionBroadcastMessage) => void): () => void;
+}
+
 export interface CreateSessionStoreOptions {
   /**
    * Optional background "refresh polling": while connected, `touch()` is called
@@ -45,6 +59,11 @@ export interface CreateSessionStoreOptions {
    * `dispose()`.
    */
   refreshIntervalMs?: number;
+  /**
+   * Optional cross-tab / cross-context broadcast seam (#434).
+   * Synchronises session end and start across multiple store instances (e.g. tabs).
+   */
+  broadcast?: SessionBroadcastAdapter;
 }
 
 export function isWalletSession(value: unknown): value is WalletSession {
@@ -71,6 +90,8 @@ export function createSessionStore(
   // them afterwards.
   let timer: ReturnType<typeof setInterval> | null = null;
   let disposed = false;
+  const instanceId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  let unsubscribeBroadcast: (() => void) | null = null;
 
   function startRefresh(): void {
     if (disposed) return;
@@ -102,6 +123,11 @@ export function createSessionStore(
       set({ session, status: "connected" });
       // Begin periodic refresh only once connected (and only if configured).
       startRefresh();
+      options.broadcast?.postMessage({
+        type: "start",
+        session,
+        senderId: instanceId,
+      });
     },
 
     async touch(now = new Date()) {
@@ -117,6 +143,10 @@ export function createSessionStore(
       // Disconnect stops any in-flight refresh polling.
       stopRefresh();
       set({ session: null, status: "disconnected" });
+      options.broadcast?.postMessage({
+        type: "end",
+        senderId: instanceId,
+      });
     },
 
     async restore() {
@@ -137,8 +167,38 @@ export function createSessionStore(
     dispose() {
       disposed = true;
       stopRefresh();
+      if (unsubscribeBroadcast) {
+        unsubscribeBroadcast();
+        unsubscribeBroadcast = null;
+      }
     },
   }));
+
+  if (options.broadcast) {
+    unsubscribeBroadcast = options.broadcast.onMessage((msg) => {
+      if (disposed) return;
+      // Loop prevention: ignore our own broadcasts so a store never reacts to its own events.
+      if (msg.senderId === instanceId) return;
+
+      if (msg.type === "end") {
+        // Remote end: transition to disconnected and stop any active timers.
+        // We do not clear storage again here (the initiating tab handled it),
+        // and we must NOT re-broadcast to avoid ping-pong loops.
+        stopRefresh();
+        store.setState({ session: null, status: "disconnected" });
+      } else if (msg.type === "start") {
+        // Remote start: a second tab connecting adopts that session.
+        // RATIONALE: Users expect connecting on one tab of an app to sign them into
+        // all open tabs of that app. Adopting the remote start connects the local tab,
+        // aligns in-memory state with the updated session, and starts refresh polling
+        // without requiring a manual page reload.
+        if (isWalletSession(msg.session)) {
+          store.setState({ session: msg.session, status: "connected" });
+          startRefresh();
+        }
+      }
+    });
+  }
 
   return store;
 }
@@ -176,6 +236,28 @@ export function createMemoryStorageAdapter(): SessionStorageAdapter {
     },
     async clear() {
       stored = null;
+    },
+  };
+}
+
+/** In-memory broadcast adapter for tests or same-process multi-instance synchronization. */
+export function createMemoryBroadcastAdapter(): SessionBroadcastAdapter {
+  const listeners = new Set<(message: SessionBroadcastMessage) => void>();
+  return {
+    postMessage(message) {
+      for (const listener of listeners) {
+        try {
+          listener(message);
+        } catch {
+          // Listener failures do not affect other listeners
+        }
+      }
+    },
+    onMessage(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }

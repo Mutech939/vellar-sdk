@@ -82,6 +82,7 @@ export class Server extends rpc.Server {
         return result;
       } catch (err: any) {
         breaker.recordFailure();
+        breaker.checkCall();
 
         if (attempt === maxRetries) {
           throw err;
@@ -90,8 +91,6 @@ export class Server extends rpc.Server {
         const delay = Math.min(maxDelay, baseDelay * Math.pow(2, attempt));
         const jitteredDelay = delay * (0.5 + 0.5 * Math.random());
         await new Promise((resolve) => setTimeout(resolve, jitteredDelay));
-
-        breaker.checkCall();
       }
     }
     throw new Error("Stellar RPC call failed after retries");

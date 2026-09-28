@@ -56,6 +56,11 @@ export interface PayerConfig {
    * than a missing co-signer.
    */
   readonly policies: readonly string[];
+  /**
+   * Optional resource URL allowlist, matched strictly by origin (scheme + host + port).
+   * When unset, behavior is unchanged and all resource URLs are permitted.
+   */
+  readonly allowedResourceOrigins?: readonly string[];
   /** The payer secret. Non-enumerable — see the module comment. */
   readonly secret: string;
 }
@@ -219,6 +224,49 @@ function parseMaxResponseBytes(raw: string | undefined): number {
 }
 
 /**
+ * Parse `VELLAR_X402_RESOURCE_ALLOWLIST`: comma-separated URLs or origins.
+ * Matched strictly on origin (scheme + host + optional port), never by substring.
+ * When unset or empty, returns undefined (all hosts permitted).
+ */
+export function parseResourceAllowlist(raw: string | undefined): readonly string[] | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const origins: string[] = [];
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    if (trimmed === "") continue;
+    let origin: string;
+    try {
+      const parsed = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+      origin = parsed.origin.toLowerCase();
+    } catch {
+      throw new ConfigError(
+        `VELLAR_X402_RESOURCE_ALLOWLIST entry ${JSON.stringify(trimmed)} is not a valid URL or origin.`,
+      );
+    }
+    if (!origins.includes(origin)) {
+      origins.push(origin);
+    }
+  }
+  if (origins.length === 0) return undefined;
+  return Object.freeze(origins);
+}
+
+/**
+ * Check if a resource URL's origin matches the server's allowlist.
+ * When allowlist is undefined or empty, returns true (unchanged behavior).
+ * Matches strictly on origin, never substring.
+ */
+export function isOriginAllowed(url: string, allowedOrigins?: readonly string[]): boolean {
+  if (!allowedOrigins || allowedOrigins.length === 0) return true;
+  try {
+    const origin = new URL(url).origin.toLowerCase();
+    return allowedOrigins.includes(origin);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build the payer configuration from the environment. Throws `ConfigError` with
  * an actionable message — and never with any part of the secret — on bad input.
  */
@@ -228,6 +276,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PayerConfig {
   const ceilings = parseAssets(required(env, "VELLAR_X402_ASSETS"));
   const rpcUrl = env.VELLAR_X402_RPC_URL?.trim() || undefined;
   const maxResponseBytes = parseMaxResponseBytes(env.VELLAR_X402_MAX_RESPONSE_BYTES);
+  const allowedResourceOrigins = parseResourceAllowlist(env.VELLAR_X402_RESOURCE_ALLOWLIST);
 
   const walletAddress = env.VELLAR_X402_WALLET?.trim() || undefined;
   if (walletAddress !== undefined && !StrKey.isValidContract(walletAddress)) {
@@ -255,6 +304,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PayerConfig {
     maxResponseBytes,
     ...(walletAddress !== undefined ? { walletAddress } : {}),
     policies,
+    ...(allowedResourceOrigins !== undefined ? { allowedResourceOrigins } : {}),
   };
 
   // Non-enumerable: absent from JSON.stringify, {...spread}, Object.keys, and

@@ -25,8 +25,12 @@ import {
   PaymentRejectedError,
   selectRequirements,
 } from "vellar-sdk/x402-guards";
-import type { PayerConfig } from "./config.js";
-import { IndeterminateSettlementError, SettlementFailedError } from "./errors.js";
+import { isOriginAllowed, type PayerConfig } from "./config.js";
+import {
+  DisallowedResourceHostError,
+  IndeterminateSettlementError,
+  SettlementFailedError,
+} from "./errors.js";
 import { createMutex, type SpendLedger } from "./ledger.js";
 import { truncateUtf8, type Truncated } from "./output.js";
 import {
@@ -218,6 +222,22 @@ export function createPayer(deps: PayerDeps): Payer {
   }
 
   async function quote(url: string): Promise<QuoteResult> {
+    if (config.allowedResourceOrigins && !isOriginAllowed(url, config.allowedResourceOrigins)) {
+      let host = url;
+      try {
+        host = new URL(url).origin;
+      } catch {
+        // preserve fallback url
+      }
+      return {
+        url,
+        requiresPayment: false,
+        payable: false,
+        refusal: `The server configuration disallowed the host "${host}". Request refused without connecting or signing.`,
+        status: 0,
+      };
+    }
+
     // A quote NEVER touches the signer, the RPC, or Horizon. One HTTP request.
     // Implementing it as "build the payment but don't send it" would cost four
     // chain round-trips and would sign for a call the agent asked to be free of
@@ -273,6 +293,16 @@ export function createPayer(deps: PayerDeps): Payer {
   }
 
   async function payExclusively(url: string, maxAmount: string): Promise<PayResult> {
+    if (config.allowedResourceOrigins && !isOriginAllowed(url, config.allowedResourceOrigins)) {
+      let host = url;
+      try {
+        host = new URL(url).origin;
+      } catch {
+        // preserve fallback url
+      }
+      throw new DisallowedResourceHostError(host, url);
+    }
+
     // Strict parse: the guards' own parser, so "1e5" and precision loss above
     // 2^53 are refused here exactly as they are for a server-supplied price.
     const ceiling = parseAmount(maxAmount);

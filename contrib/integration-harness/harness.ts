@@ -92,15 +92,16 @@ function build() {
   const calls: string[] = [];
   const kit = fakeKit();
   const sac = fakeSac();
+  const server = makeMockServer({ calls });
   const wallet = createVellarWallet({
     network: "testnet",
     appName: "Test App",
     kit,
-    backend: createHttpWalletBackend(API_URL, makeMockServer({ calls })),
+    backend: createHttpWalletBackend(API_URL, server),
     sac,
     isValidAddress: () => true,
   });
-  return { wallet, kit, sac, calls };
+  return { wallet, kit, sac, calls, server };
 }
 
 export { API_URL, CONTRACT, token, build, fakeKit, fakeSac, makeMockServer };

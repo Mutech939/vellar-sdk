@@ -261,4 +261,25 @@ describe("selectCandidates", () => {
     expect(selectCandidates({}, config).payable).toHaveLength(0);
     expect(selectCandidates({ resources: [] }, config).resultsFound).toBe(0);
   });
+
+  it("filters candidates by allowedResourceOrigins if configured", () => {
+    const configWithAllowlist = {
+      ...config,
+      allowedResourceOrigins: ["https://allowed.org"],
+    };
+    const { payable } = selectCandidates(
+      {
+        resources: [
+          entry("https://allowed.org/data", "100"),
+          entry("https://allowed.org.evil.com/data", "50"), // substring match defeated
+          entry("https://disallowed.org/data", "20"),
+        ],
+      },
+      configWithAllowlist,
+    );
+    expect(payable).toHaveLength(1);
+    expect(payable[0]!.url).toBe("https://allowed.org/data");
+    expect(payable[0]!.amount).toBe(100n);
+  });
 });
+

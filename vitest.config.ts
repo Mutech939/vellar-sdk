@@ -10,15 +10,16 @@ import { sdkSourceAliases } from "./vitest.alias";
 // them deliberately with `npm run test:integration`.
 export default defineConfig({
   // `vellar-sdk/*` self-imports resolve to source, so `npm test` does not
-  // require a prior `npm run build`. See vitest.alias.ts.
   resolve: { alias: sdkSourceAliases },
   test: {
+    setupFiles: ["./vitest.setup.ts"],
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
       "**/.{idea,git,cache,output,temp}/**",
       "**/*.integration.test.ts",
       "**/*.load.test.ts",
+      "**/load-test/**",
     ],
   },
 });

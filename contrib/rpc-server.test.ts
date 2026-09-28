@@ -19,6 +19,7 @@ describe("RpcServer backoff and circuit breaker (contrib)", () => {
 
     const server = new Server("https://mock-rpc-url.org");
     const promise = server.getLatestLedger();
+    promise.catch(() => {});
 
     // 1st attempt fails immediately.
     await vi.advanceTimersByTimeAsync(0);
@@ -47,7 +48,10 @@ describe("RpcServer backoff and circuit breaker (contrib)", () => {
     const server = new Server("https://mock-rpc-url-2.org");
 
     // Make 1 call that fails 4 times (1 initial + 3 retries). This records 4 failures on the breaker.
-    await expect(server.getLatestLedger()).rejects.toThrow("RPC Degraded");
+    const p1 = server.getLatestLedger();
+    p1.catch(() => {});
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(p1).rejects.toThrow("RPC Degraded");
     expect(getLatestLedgerSpy).toHaveBeenCalledTimes(4);
 
     const breaker = getBreaker("https://mock-rpc-url-2.org");
@@ -57,6 +61,7 @@ describe("RpcServer backoff and circuit breaker (contrib)", () => {
     // Run one more call. The first attempt of this call will be the 5th failure.
     // This should immediately trip the breaker to OPEN.
     const promise = server.getLatestLedger();
+    promise.catch(() => {});
     await vi.advanceTimersByTimeAsync(0);
 
     await expect(promise).rejects.toThrow(RpcCircuitBreakerError);
@@ -78,9 +83,15 @@ describe("RpcServer backoff and circuit breaker (contrib)", () => {
 
     // Trip the breaker to OPEN: need 5 failures.
     // 1st request makes 4 attempts (4 failures)
-    await expect(server.getLatestLedger()).rejects.toThrow("RPC Degraded");
+    const p1 = server.getLatestLedger();
+    p1.catch(() => {});
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(p1).rejects.toThrow("RPC Degraded");
     // 2nd request makes 1 attempt (5th failure) and trips breaker to OPEN
-    await expect(server.getLatestLedger()).rejects.toThrow(RpcCircuitBreakerError);
+    const p2 = server.getLatestLedger();
+    p2.catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(p2).rejects.toThrow(RpcCircuitBreakerError);
     expect(breaker.state).toBe("OPEN");
     expect(getLatestLedgerSpy).toHaveBeenCalledTimes(5);
 

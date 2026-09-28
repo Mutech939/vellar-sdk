@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DisallowedAssetError,
+  DisallowedResourceHostError,
   MaxAmountExceededError,
   NoUsablePaymentOptionError,
   PaymentRejectedError,
@@ -559,3 +560,57 @@ describe("quote — never signs, never touches the chain", () => {
     expect(result.offered).toHaveLength(2);
   });
 });
+
+describe("pay — resource URL allowlist", () => {
+  const allowedConfig = testConfig({ resourceAllowlist: "https://res.test" });
+
+  it("proceeds when the host origin matches the allowlist", async () => {
+    const { payer } = makePayer(
+      [response402(challenge([requirement()])), responsePaid(txHash("tx-1"))],
+      stubSigner(),
+      allowedConfig,
+    );
+
+    const result = await payer.pay("https://res.test/paid", "1000");
+    expect(result.paid).toBe(true);
+    expect(result.settlement?.amount).toBe("1000");
+  });
+
+  it("refuses a disallowed host without signing", async () => {
+    const signer = neverCalledSigner();
+    const { payer } = makePayer([], signer, allowedConfig);
+
+    await expect(payer.pay("https://other-domain.test/paid", "1000")).rejects.toThrow(
+      DisallowedResourceHostError,
+    );
+    await expect(payer.pay("https://other-domain.test/paid", "1000")).rejects.toThrow(
+      /disallowed the host "https:\/\/other-domain\.test"/,
+    );
+  });
+
+  it("refuses a hostile host embedding the allowed origin as a substring", async () => {
+    const signer = neverCalledSigner();
+    const { payer } = makePayer([], signer, allowedConfig);
+
+    // Hostile host embeds "res.test" as a subdomain/prefix
+    const hostileUrl = "https://res.test.attacker.com/paid";
+    await expect(payer.pay(hostileUrl, "1000")).rejects.toThrow(DisallowedResourceHostError);
+    await expect(payer.pay(hostileUrl, "1000")).rejects.toThrow(
+      /disallowed the host "https:\/\/res\.test\.attacker\.com"/,
+    );
+
+    // Hostile host embeds "res.test" as a suffix or port
+    const hostilePort = "https://res.test:8443/paid";
+    await expect(payer.pay(hostilePort, "1000")).rejects.toThrow(DisallowedResourceHostError);
+  });
+
+  it("refuses quote for disallowed host with an explanatory refusal and without fetching", async () => {
+    const { payer } = makePayer([], neverCalledSigner(), allowedConfig);
+
+    const result = await payer.quote("https://evil.org/resource");
+    expect(result.payable).toBe(false);
+    expect(result.requiresPayment).toBe(false);
+    expect(result.refusal).toMatch(/disallowed the host "https:\/\/evil\.org"/);
+  });
+});
+

@@ -50,6 +50,8 @@ export interface PaymentClient {
     token: TokenInfo;
     amount: bigint;
   }): Promise<PreparedPayment>;
+  /** Switch the payment client's target network. */
+  switchNetwork?(network: Network): void;
 }
 
 export interface PaymentClientOptions {
@@ -64,8 +66,13 @@ export interface PaymentClientOptions {
 
 export function createPaymentClient(options: PaymentClientOptions): PaymentClient {
   const signedToXdr = options.signedToXdr ?? defaultSignedToXdr;
+  let currentNetwork = options.network;
 
   return {
+    switchNetwork(newNetwork: Network) {
+      currentNetwork = newNetwork;
+    },
+
     async preparePayment({ from, to, token, amount }) {
       if (!options.isValidAddress(to)) {
         throw new InvalidRecipientError(`"${to}" is not a valid Stellar address`);
@@ -83,7 +90,7 @@ export function createPaymentClient(options: PaymentClientOptions): PaymentClien
         .getSACClient(token.contractId)
         .transfer({ from, to, amount }, { timeoutInSeconds: RELAYER_MAX_TIMEOUT_SECONDS });
 
-      const review: PaymentReview = { from, to, token, amount, network: options.network };
+      const review: PaymentReview = { from, to, token, amount, network: currentNetwork };
 
       return {
         review,
@@ -91,7 +98,7 @@ export function createPaymentClient(options: PaymentClientOptions): PaymentClien
           const signed = (await options.kit.sign(tx)) ?? tx;
           return options.backend.submitTransaction({
             signedXdr: signedToXdr(signed),
-            network: options.network,
+            network: currentNetwork,
           });
         },
       };

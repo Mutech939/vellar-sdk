@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { API_URL, CONTRACT, token, build, fakeKit, fakeSac, makeMockServer } from "./harness";
+import { API_URL, CONTRACT, token, makeMockServer } from "./harness";
+import { createVellarWallet } from "../../src/client";
+import { createHttpWalletBackend } from "../../src/http-backend";
+import type { PasskeyKitLike } from "../../src/passkeykit-connector";
 
 const tokenInfo = token;
 
@@ -44,15 +47,16 @@ describe("client.ts ↔ http-backend.ts integration harness (contrib)", () => {
     const calls: string[] = [];
     const kit = fakeKit();
     const sac = fakeSac();
+    const server = makeMockServer({ calls });
     const wallet = createVellarWallet({
       network: "testnet",
       appName: "Test App",
       kit,
-      backend: createHttpWalletBackend(API_URL, makeMockServer({ calls })),
+      backend: createHttpWalletBackend(API_URL, server),
       sac,
       isValidAddress: () => true,
     });
-    return { wallet, kit, sac, calls };
+    return { wallet, kit, sac, calls, server };
   }
 
   it("initializes the wallet through the mock backend and sets the session", async () => {
@@ -68,9 +72,20 @@ describe("client.ts ↔ http-backend.ts integration harness (contrib)", () => {
   });
 
   it("fetches a balance from the backend after wallet initialization", async () => {
-    const { wallet, calls } = build();
+    const { wallet, calls, server } = build();
 
     const session = await wallet.connect();
+    const res = await server(`${API_URL}/wallet/balance`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ contractId: session.accountId }),
+    });
+
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { contractId: string; balances: { symbol: string }[] };
+    expect(data.contractId).toBe(CONTRACT);
+    expect(data.balances).toHaveLength(1);
+    expect(data.balances[0]!.symbol).toBe("XLM");
     // The balance call goes through the harness server; the harness serves it
     // when the client queries /wallet/balance after connect().
     expect(calls).toContain("POST /wallet/balance");

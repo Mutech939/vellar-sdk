@@ -12,36 +12,37 @@ import {
   type X402SignerActionEvent,
   type X402SignerActionHook,
 } from "../../src/x402-signer";
-import { Address, Keypair } from "@stellar/stellar-sdk";
+import { Address, Keypair, nativeToScVal, xdr } from "@stellar/stellar-sdk";
 
 const PASSPHRASE = "Test SDF Network ; September 2015";
 const C_ADDRESS = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const OTHER_C = "CBIN4HTPJM2QLJ32DTRO6OCLIMM7TR7D74JDIPVQYLNYGL7SBWOXH5ND";
 
-function makeV1AuthEntry(contractAddress: string): import("@stellar/stellar-sdk").xdr.SorobanAuthorizationEntry {
+function makeV1AuthEntry(contractAddress: string): xdr.SorobanAuthorizationEntry {
   const addr = new Address(contractAddress);
-  const credentials = (import("@stellar/stellar-sdk").xdr.SorobanCredentials.sorobanCredentialsAddress(
-    new import("@stellar/stellar-sdk").xdr.SorobanAddressCredentials({
+  const credentials = xdr.SorobanCredentials.sorobanCredentialsAddress(
+    new xdr.SorobanAddressCredentials({
       address: addr.toScAddress(),
-      nonce: import("@stellar/stellar-sdk").xdr.Int64.fromString("12345"),
+      nonce: xdr.Int64.fromString("12345"),
       signatureExpirationLedger: 0,
-      signature: import("@stellar/stellar-sdk").xdr.ScVal.scvVoid(),
+      signature: xdr.ScVal.scvVoid(),
     }),
-  )) as any;
-  const rootInvocation = new (import("@stellar/stellar-sdk").xdr.SorobanAuthorizedInvocation)({
-    function: (import("@stellar/stellar-sdk").xdr.xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
-      new (import("@stellar/stellar-sdk").xdr.xdr.InvokeContractArgs)({
-        contractAddress: new Address("CBIN4HTPJM2QLJ32DTRO6OCLIMM7TR7D74JDIPVQYLNYGL7SBWOXH5ND").toScAddress(),
+  );
+  const rootInvocation = new xdr.SorobanAuthorizedInvocation({
+    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+      new xdr.InvokeContractArgs({
+        contractAddress: new Address(OTHER_C).toScAddress(),
         functionName: "transfer",
         args: [
           nativeToScVal(contractAddress, { type: "address" }),
-          nativeToScVal("CBIN4HTPJM2QLJ32DTRO6OCLIMM7TR7D74JDIPVQYLNYGL7SBWOXH5ND", { type: "address" }),
+          nativeToScVal(OTHER_C, { type: "address" }),
           nativeToScVal(1n, { type: "i128" }),
         ],
       }),
     ),
     subInvocations: [],
   });
-  return new (import("@stellar/stellar-sdk").xdr.SorobanAuthorizationEntry)({ credentials, rootInvocation });
+  return new xdr.SorobanAuthorizationEntry({ credentials, rootInvocation });
 }
 
 /** Helper to convert address to scval (for makeV1AuthEntry) */

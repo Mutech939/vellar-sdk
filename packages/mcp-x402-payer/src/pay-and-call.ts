@@ -13,7 +13,7 @@
 // session ledger is checked BEFORE the search, so a call that could not pay
 // anything never reaches the network.
 
-import type { PayerConfig } from "./config.js";
+import { isOriginAllowed, type PayerConfig } from "./config.js";
 import type { SpendLedger } from "./ledger.js";
 import { log } from "./output.js";
 import type { FetchLike, PayResult, Payer } from "./payer.js";
@@ -93,7 +93,7 @@ export class NoPayableResultError extends Error {
  */
 export function selectCandidates(
   data: SearchResponse,
-  config: Pick<PayerConfig, "caip2" | "allowedAssets">,
+  config: Pick<PayerConfig, "caip2" | "allowedAssets" | "allowedResourceOrigins">,
 ): { payable: Candidate[]; resultsFound: number } {
   const resources = data.resources ?? [];
   const payable: Candidate[] = [];
@@ -101,6 +101,9 @@ export function selectCandidates(
   for (const r of resources) {
     const url = r.resource;
     if (!url) continue;
+    if (config.allowedResourceOrigins && !isOriginAllowed(url, config.allowedResourceOrigins)) {
+      continue;
+    }
 
     for (const a of r.accepts ?? []) {
       if (a.network !== config.caip2) continue;

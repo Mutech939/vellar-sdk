@@ -35,6 +35,25 @@ async function toApiError(res: Response): Promise<WalletApiError> {
   );
 }
 
+export interface HttpErrorLogEntry {
+  method: string;
+  url: string;
+  status: number;
+  duration: number;
+}
+
+export type HttpErrorLogger = (entry: HttpErrorLogEntry) => void;
+
+export interface HttpWalletBackendOptions {
+  fetchImpl?: typeof fetch;
+  /**
+   * Injectable structured error logging hook (#247).
+   * Called whenever a request fails (non-2xx response or network failure)
+   * with structured metadata: { method, url, status, duration }.
+   */
+  onErrorLog?: HttpErrorLogger;
+}
+
 export interface HttpWalletBackend {
   submitWalletCreation(input: {
     keyId: string;
@@ -58,20 +77,57 @@ export interface HttpWalletBackend {
  * `createVellarWallet({ backend })`.
  *
  * @param apiUrl   Base URL of your Vellar-compatible gateway.
- * @param fetchImpl Optional fetch (defaults to the global fetch).
+ * @param fetchOrOptions Optional fetch function or options object containing onErrorLog hook.
+ * @param options Optional options when fetchImpl is passed as second argument.
  */
 export function createHttpWalletBackend(
   apiUrl: string,
-  fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
+  fetchOrOptions?: typeof fetch | HttpWalletBackendOptions,
+  options?: HttpWalletBackendOptions,
 ): HttpWalletBackend {
   const base = apiUrl.replace(/\/+$/, "");
 
-  const post = (path: string, body: unknown): Promise<Response> =>
-    fetchImpl(`${base}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  let fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
+  let opts: HttpWalletBackendOptions = {};
+
+  if (typeof fetchOrOptions === "function") {
+    fetchImpl = fetchOrOptions;
+    if (options) opts = options;
+  } else if (fetchOrOptions && typeof fetchOrOptions === "object") {
+    opts = fetchOrOptions;
+    if (opts.fetchImpl) fetchImpl = opts.fetchImpl;
+  }
+
+  const post = async (path: string, body: unknown): Promise<Response> => {
+    const url = `${base}${path}`;
+    const start = performance.now();
+    try {
+      const res = await fetchImpl(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const duration = performance.now() - start;
+        opts.onErrorLog?.({
+          method: "POST",
+          url,
+          status: res.status,
+          duration,
+        });
+      }
+      return res;
+    } catch (err) {
+      const duration = performance.now() - start;
+      opts.onErrorLog?.({
+        method: "POST",
+        url,
+        status: 0,
+        duration,
+      });
+      throw err;
+    }
+  };
 
   return {
     async submitWalletCreation({ keyId, contractId, network, signedTx }) {

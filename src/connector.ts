@@ -16,4 +16,9 @@ export interface WalletConnector {
   connectWallet(network: Network): Promise<WalletSession>;
   /** Produce a signature/auth for a reviewed transaction (sign flow). */
   signTransaction(input: SignTransactionInput): Promise<SignedTransaction>;
+  /**
+   * Switch the target network. Clears any connected wallet state to prevent
+   * a session created on one network from being used on another.
+   */
+  switchNetwork?(network: Network): void;
 }

@@ -181,6 +181,12 @@ export interface VellarWallet {
   readonly connector: WalletConnector;
   /** Lower-level: the composed payment client. */
   readonly payments: PaymentClient;
+  /**
+   * Switch the wallet client's active network (e.g. testnet <-> mainnet toggle).
+   * Clears the current connected session so that a session created on one
+   * network can never be carried across or used to sign on another network.
+   */
+  switchNetwork(network: Network): void;
 }
 
 /**
@@ -220,6 +226,7 @@ export function createVellarWallet(config: VellarWalletConfig): VellarWallet {
   });
 
   let session: WalletSession | null = null;
+  let activeNetwork: Network = config.network;
 
   // Validate at construction so a missing/malformed RPC URL fails here, next to
   // the config that caused it — not later inside wallet.x402.fetch(). (The
@@ -312,15 +319,26 @@ export function createVellarWallet(config: VellarWalletConfig): VellarWallet {
 
     async create(input) {
       session = await connector.createWallet({
-        network: config.network,
+        network: activeNetwork,
         username: input?.username,
       });
       return session;
     },
 
     async connect() {
-      session = await connector.connectWallet(config.network);
+      session = await connector.connectWallet(activeNetwork);
       return session;
+    },
+
+    switchNetwork(newNetwork: Network) {
+      activeNetwork = newNetwork;
+      session = null;
+      if (connector.switchNetwork) {
+        connector.switchNetwork(newNetwork);
+      }
+      if (payments.switchNetwork) {
+        payments.switchNetwork(newNetwork);
+      }
     },
 
     async pay({ to, amount, token }) {

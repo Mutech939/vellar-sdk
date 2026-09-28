@@ -287,7 +287,6 @@ describe("createPasskeyX402Signer", () => {
   it("fires onSignerAction for both `authorize` (success) and `deny` (error)", async () => {
     const events: X402SignerActionEvent[] = [];
     const keyId = new Uint8Array(20).fill(9);
-  describe("capability scoping (#224)", () => {
     const assertion: WebAuthnAssertion = {
       authenticatorData: new Uint8Array(37).fill(1),
       clientDataJSON: new Uint8Array(50).fill(2),
@@ -326,7 +325,15 @@ describe("createPasskeyX402Signer", () => {
       "deny:error",
     ]);
     expect(events.every((e) => e.actor === C_ADDRESS)).toBe(true);
-      keyId: new Uint8Array(20).fill(9),
+  });
+
+  describe("capability scoping (#224)", () => {
+    const keyId = new Uint8Array(20).fill(9);
+    const assertion: WebAuthnAssertion = {
+      authenticatorData: new Uint8Array(37).fill(1),
+      clientDataJSON: new Uint8Array(50).fill(2),
+      signature: new Uint8Array(64).fill(3),
+      keyId,
     };
 
     it("refuses to sign an invocation outside the configured capabilities", async () => {
@@ -359,4 +366,5 @@ describe("createPasskeyX402Signer", () => {
       ).resolves.toBeDefined();
     });
   });
+});
 });

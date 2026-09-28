@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WalletSession } from "./types";
 import {
+  createMemoryBroadcastAdapter,
   createMemoryStorageAdapter,
   createSessionStore,
   createWebStorageAdapter,
@@ -178,6 +179,9 @@ describe("createSessionStore teardown", () => {
     // No active timers remain after dispose (a leak would fail here by keeping
     // the interval scheduled).
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe("createSessionStore — refresh & expiry edge cases", () => {
   it("refreshes lastActiveAt just before session expiry (boundary condition)", async () => {
     const storage = createMemoryStorageAdapter();
@@ -425,3 +429,91 @@ describe("isWalletSession", () => {
     expect(isWalletSession(value)).toBe(false);
   });
 });
+
+describe("cross-tab session synchronisation (broadcast seam)", () => {
+  it("propagates remote end to transition the second store to disconnected", async () => {
+    const broadcast = createMemoryBroadcastAdapter();
+    const storage1 = createMemoryStorageAdapter();
+    const storage2 = createMemoryStorageAdapter();
+
+    const store1 = createSessionStore(storage1, { broadcast });
+    const store2 = createSessionStore(storage2, { broadcast });
+
+    // Store 1 connects and starts session
+    await store1.getState().start(session);
+    expect(store1.getState().status).toBe("connected");
+
+    // Store 2 adopted the session via broadcast
+    expect(store2.getState().status).toBe("connected");
+    expect(store2.getState().session).toEqual(session);
+
+    // Now Store 1 ends the session (e.g. user clicks disconnect in Tab 1)
+    await store1.getState().end();
+    expect(store1.getState().status).toBe("disconnected");
+    expect(store1.getState().session).toBeNull();
+
+    // Store 2 transitions to disconnected and clears session without calling end() directly
+    expect(store2.getState().status).toBe("disconnected");
+    expect(store2.getState().session).toBeNull();
+  });
+
+  it("remote end tears down internal refresh timers in the second store", async () => {
+    vi.useFakeTimers();
+    try {
+      const broadcast = createMemoryBroadcastAdapter();
+      const storage1 = createMemoryStorageAdapter();
+      const storage2 = createMemoryStorageAdapter();
+      const touchSpy2 = vi.spyOn(storage2, "save");
+
+      const store1 = createSessionStore(storage1, { broadcast });
+      const store2 = createSessionStore(storage2, {
+        broadcast,
+        refreshIntervalMs: 1000,
+      });
+
+      // Start session on store 1 -> adopted by store 2
+      await store1.getState().start(session);
+      touchSpy2.mockClear();
+
+      // Advancing time triggers refresh timer on store 2
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(touchSpy2).toHaveBeenCalled();
+      touchSpy2.mockClear();
+
+      // Remote end from store 1
+      await store1.getState().end();
+      expect(store2.getState().status).toBe("disconnected");
+
+      // Advancing time now should NOT trigger any touch calls on store 2
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(touchSpy2).not.toHaveBeenCalled();
+
+      store1.getState().dispose();
+      store2.getState().dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not trigger an echo loop when a store broadcasts", async () => {
+    const broadcast = createMemoryBroadcastAdapter();
+    const postMessageSpy = vi.spyOn(broadcast, "postMessage");
+
+    const store1 = createSessionStore(createMemoryStorageAdapter(), { broadcast });
+    const store2 = createSessionStore(createMemoryStorageAdapter(), { broadcast });
+
+    // Store 1 starts session
+    await store1.getState().start(session);
+    // postMessage should have been called exactly once by store 1, not looped back
+    expect(postMessageSpy).toHaveBeenCalledTimes(1);
+
+    // Store 1 ends session
+    await store1.getState().end();
+    // postMessage should have been called exactly twice total (1 for start, 1 for end)
+    expect(postMessageSpy).toHaveBeenCalledTimes(2);
+
+    store1.getState().dispose();
+    store2.getState().dispose();
+  });
+});
+

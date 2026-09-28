@@ -28,6 +28,7 @@ export interface TestEnvOverrides {
   assets?: string;
   network?: string;
   maxResponseBytes?: string;
+  resourceAllowlist?: string;
 }
 
 export function testEnv(over: TestEnvOverrides = {}): NodeJS.ProcessEnv {
@@ -36,6 +37,7 @@ export function testEnv(over: TestEnvOverrides = {}): NodeJS.ProcessEnv {
     VELLAR_X402_ASSETS: over.assets ?? `${ASSET_A}:1000000,${ASSET_B}:500`,
     VELLAR_X402_NETWORK: over.network ?? "testnet",
     ...(over.maxResponseBytes ? { VELLAR_X402_MAX_RESPONSE_BYTES: over.maxResponseBytes } : {}),
+    ...(over.resourceAllowlist ? { VELLAR_X402_RESOURCE_ALLOWLIST: over.resourceAllowlist } : {}),
   };
 }
 

@@ -231,3 +231,36 @@ describe("circuit breaker around facilitator calls", () => {
     expect(backend.submitTransaction).toHaveBeenCalledOnce();
   });
 });
+
+describe("wallet.switchNetwork", () => {
+  it("clears connected session and forces a fresh connect on the new network", async () => {
+    const { wallet, backend } = build();
+
+    const session = await wallet.connect();
+    expect(wallet.session).toBe(session);
+    expect(session.network).toBe("testnet");
+
+    // Switching network clears session
+    wallet.switchNetwork("mainnet");
+    expect(wallet.session).toBeNull();
+
+    // Calling pay() without reconnecting throws WalletNotReadyError
+    await expect(wallet.pay({ to: "CDEST", amount: 1n, token })).rejects.toThrow(
+      WalletNotReadyError,
+    );
+
+    // Reconnecting establishes a new session on mainnet
+    const newSession = await wallet.connect();
+    expect(newSession.network).toBe("mainnet");
+    expect(wallet.session).toBe(newSession);
+
+    // Now paying succeeds on mainnet
+    await expect(wallet.pay({ to: "CDEST", amount: 1n, token })).resolves.toEqual({
+      hash: "txhash-abc",
+    });
+    expect(backend.submitTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ network: "mainnet" }),
+    );
+  });
+});
+

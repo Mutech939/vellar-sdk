@@ -119,3 +119,30 @@ describe("loadConfig — network and limits", () => {
     expect(() => loadConfig(testEnv({ maxResponseBytes: "abc" }))).toThrow(/positive integer/);
   });
 });
+
+describe("loadConfig — resource URL allowlist", () => {
+  it("leaves allowedResourceOrigins undefined when unset or empty", () => {
+    expect(loadConfig(testEnv()).allowedResourceOrigins).toBeUndefined();
+    expect(loadConfig(testEnv({ resourceAllowlist: "" })).allowedResourceOrigins).toBeUndefined();
+    expect(loadConfig(testEnv({ resourceAllowlist: "   " })).allowedResourceOrigins).toBeUndefined();
+  });
+
+  it("parses comma-separated origins, normalizes lowercase, and extracts origin", () => {
+    const config = loadConfig(
+      testEnv({
+        resourceAllowlist: "https://api.example.com, https://allowed.org/path?query=1, https://custom.org:8443",
+      }),
+    );
+    expect(config.allowedResourceOrigins).toEqual([
+      "https://api.example.com",
+      "https://allowed.org",
+      "https://custom.org:8443",
+    ]);
+  });
+
+  it("rejects an invalid URL in the allowlist", () => {
+    expect(() =>
+      loadConfig(testEnv({ resourceAllowlist: "https://valid.org, ://invalid-url" })),
+    ).toThrow(/not a valid URL or origin/);
+  });
+});

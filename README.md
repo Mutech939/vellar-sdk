@@ -111,6 +111,24 @@ transactions to your backend, which does the sponsored submit.
 You run a backend implementing these (holding your relayer/sponsor creds). Your
 backend must also allow your app's origin via CORS.
 
+#### Structured Error Logging Hook
+
+You can inject an `onErrorLog` hook to route failed gateway requests into your observability pipeline:
+
+```ts
+const backend = createHttpWalletBackend("https://api.myapp.com", {
+  onErrorLog: ({ method, url, status, duration }) => {
+    logger.error("Wallet gateway request failed", { method, url, status, duration });
+  },
+});
+```
+
+The hook receives:
+- `method`: HTTP method (`"POST"`)
+- `url`: Target endpoint URL
+- `status`: HTTP response status code (or `0` on network failure)
+- `duration`: Request duration in milliseconds
+
 ## API
 
 ### `createVellarWallet(config): VellarWallet`
@@ -123,20 +141,21 @@ Returns a `VellarWallet`:
 | `create({ username? })`      | Register a passkey and create the smart account              |
 | `connect()`                  | Reconnect with an existing passkey                           |
 | `pay({ to, amount, token })` | Build → simulate → sign → submit; returns `{ hash }`         |
+| `switchNetwork(network)`     | Switch active network and clear connected session            |
 | `policies`                   | Programmable account policies — see [Policies](#policies)   |
 | `x402`                       | Agentic payments — pay HTTP-402 resources — see [x402](#x402) |
 | `connector` / `payments`     | Lower-level building blocks for custom flows                 |
 
 ### Helpers
 
-| Export                         | Description                                                                              |
-| ------------------------------ | ---------------------------------------------------------------------------------------- |
-| `createHttpWalletBackend(url)` | An HTTP `backend` client for your gateway — pass straight to the config                  |
-| `TESTNET`                      | Testnet config: `rpcUrl`, `networkPassphrase`, `walletWasmHash`, `nativeTokenContractId` |
-| `MAINNET` / `mainnetConfig()`  | Mainnet config — see [Mainnet](#mainnet) (two values you must supply)                    |
-| `WalletApiError`               | Thrown by the HTTP backend on non-2xx responses (has `status`, `code`)                   |
-| `CircuitOpenError`             | Thrown by the circuit breaker when the facilitator is down — see [Circuit breaking](#circuit-breaking) |
-| `isReachable(rpcUrl)`          | Ping an RPC endpoint for reachability (from `vellar-sdk/rpc`) — see [Health check](#health-check) |
+| Export                                  | Description                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `createHttpWalletBackend(url, options?)`| An HTTP `backend` client for your gateway with optional structured `onErrorLog` hook     |
+| `TESTNET`                               | Testnet config: `rpcUrl`, `networkPassphrase`, `walletWasmHash`, `nativeTokenContractId` |
+| `MAINNET` / `mainnetConfig()`           | Mainnet config — see [Mainnet](#mainnet) (two values you must supply)                    |
+| `WalletApiError`                        | Thrown by the HTTP backend on non-2xx responses (has `status`, `code`)                   |
+| `CircuitOpenError`                      | Thrown by the circuit breaker when the facilitator is down — see [Circuit breaking](#circuit-breaking) |
+| `isReachable(rpcUrl)`                   | Ping an RPC endpoint for reachability (from `vellar-sdk/rpc`) — see [Health check](#health-check) |
 
 ### Circuit breaking
 

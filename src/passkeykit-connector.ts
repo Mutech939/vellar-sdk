@@ -143,7 +143,8 @@ function assertBrowserWebAuthnContext(operation: string): void {
 }
 
 export function createPasskeyKitConnector(options: PasskeyKitConnectorOptions): WalletConnector {
-  const { kit, backend, network, appName } = options;
+  const { kit, backend, appName } = options;
+  let network = options.network;
   const now = options.now ?? (() => new Date());
   const signedToXdr = options.signedToXdr ?? defaultSignedToXdr;
   const onDebugLog = options.onDebugLog ?? (() => {});
@@ -254,6 +255,14 @@ export function createPasskeyKitConnector(options: PasskeyKitConnectorOptions): 
       assertNetwork(input.network);
       const signed = await kit.sign(input.xdr);
       return { signedXdr: signedToXdr(signed) };
+    },
+
+    switchNetwork(newNetwork: Network): void {
+      // Switching network MUST clear connected wallet state: a passkey connected
+      // to a testnet contract is meaningless on mainnet, and carrying it across
+      // silently would cause signature verification or simulation failure.
+      network = newNetwork;
+      activeSessionKeyPublicKey = undefined;
     },
   };
 }

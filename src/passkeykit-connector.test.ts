@@ -405,3 +405,37 @@ describe("defaultSignedToXdr", () => {
     expect(() => defaultSignedToXdr({})).toThrow(TypeError);
   });
 });
+
+describe("switchNetwork", () => {
+  it("proves a session created on one network can never be used to sign on the other", async () => {
+    const kit = fakeKit();
+    const c = connector(kit);
+
+    // Create session on testnet
+    const session = await c.connectWallet("testnet");
+    expect(session.network).toBe("testnet");
+
+    // Signing on testnet succeeds
+    const tx = await c.signTransaction({ xdr: "xdr-payload", network: "testnet" });
+    expect(tx.signedXdr).toBe("signed-xdr");
+
+    // Attempting to use this connector/session to sign on mainnet fails with WalletNetworkMismatchError
+    await expect(
+      c.signTransaction({ xdr: "xdr-payload", network: "mainnet" }),
+    ).rejects.toThrow(WalletNetworkMismatchError);
+
+    // Switch to mainnet
+    c.switchNetwork?.("mainnet");
+
+    // Now signing on testnet is rejected
+    await expect(
+      c.signTransaction({ xdr: "xdr-payload", network: "testnet" }),
+    ).rejects.toThrow(WalletNetworkMismatchError);
+
+    // And connecting on mainnet succeeds and allows signing on mainnet
+    const mainnetSession = await c.connectWallet("mainnet");
+    expect(mainnetSession.network).toBe("mainnet");
+    const mainnetTx = await c.signTransaction({ xdr: "xdr-payload", network: "mainnet" });
+    expect(mainnetTx.signedXdr).toBe("signed-xdr");
+  });
+});
